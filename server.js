@@ -9,7 +9,6 @@ app.use(express.json({ limit: "10mb" }));
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-
 // ---------- SCRAPER ----------
 async function scrapeMobile(url) {
   console.log("Starte Scraper…", url);
@@ -27,10 +26,7 @@ async function scrapeMobile(url) {
   });
 
   const page = await browser.newPage();
-
-  await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-  );
+  await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
 
   await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
@@ -41,7 +37,7 @@ async function scrapeMobile(url) {
       title: get("h1"),
       price: get('[data-testid="prime-price"]'),
       details: get('[data-testid="keyFacts"]'),
-      description: get('[data-testid=\"description\"]')
+      description: get('[data-testid="description"]')
     };
   });
 
@@ -55,15 +51,13 @@ Beschreibung: ${data.description}
 `;
 }
 
-
-
 // ---------- AI ----------
 async function askLLM(promptText, instruction) {
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -97,59 +91,48 @@ async function askLLM(promptText, instruction) {
   }
 }
 
-
-
 // ---------- ROUTE ----------
 app.post("/api/analyze", async (req, res) => {
   try {
-    const { text, image, question } = req.body;
+    const { text, question } = req.body;
 
     if (!OPENROUTER_API_KEY) {
       return res.status(500).json({ error: "API Key fehlt" });
     }
 
+    if (!text) {
+      return res.status(400).json({ error: "Kein Input erhalten" });
+    }
+
     let vehicleText = "";
 
-    // ----- mobile.de -----
-    if (text && text.includes("mobile.de")) {
+    // ----- mobile.de Link prüfen -----
+    if (text.includes("mobile.de")) {
       console.log("Mobile.de erkannt — Scraping…");
-
       try {
         vehicleText = await scrapeMobile(text);
       } catch (e) {
         console.error("SCRAPER ERROR", e);
-        vehicleText =
-          "SCRAPER FEHLER — ANALYSIERE NUR DIESEN LINK:\n" + text;
+        vehicleText = "SCRAPER FEHLER — analysiere nur den Link:\n" + text;
       }
-    }
-
-    // ----- Beschreibung -----
-    else if (text) {
+    } else {
+      // ----- normale Beschreibung -----
       vehicleText = text;
     }
 
-    // ----- Bild optional -----
-    else if (image) {
-      vehicleText = "[Bilddaten]";
-    }
-
-    else {
-      return res.status(400).json({ error: "Kein Input erhalten" });
-    }
-
-
     const instruction = question || `
-Analysiere dieses Fahrzeug.
-Gib aus:
+Analysiere dieses Fahrzeug und gib strukturiert aus:
 
-1. Kerndaten
-2. Zuverlässigkeit
-3. Unterhaltskosten
-4. Verbrauch
-5. Typische Schwachstellen
-6. Stärken
-7. Schwächen
-8. Empfehlung
+1️⃣ Fahrzeug-Kerndaten
+2️⃣ Typische Zuverlässigkeit & Schwachstellen
+3️⃣ Laufleistungs-Risiko
+4️⃣ Unterhaltskosten realistisch
+5️⃣ Verbrauch & Alltag
+6️⃣ Stärken
+7️⃣ Schwächen
+8️⃣ Für wen geeignet?
+
+Benutze klares, verständliches Deutsch.
 `;
 
     const answer = await askLLM(vehicleText, instruction);
@@ -162,19 +145,14 @@ Gib aus:
   }
 });
 
-
-
 // ---------- HEALTH CHECK ----------
 app.get("/", (req, res) => {
   res.send("Backend läuft ✅");
 });
 
-
-
 // ---------- START ----------
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () =>
   console.log("🚀 Backend läuft auf Port", PORT)
 );
-;
+
