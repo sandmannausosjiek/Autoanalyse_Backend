@@ -95,16 +95,30 @@ async function askLLM(promptText, instruction) {
 app.post("/api/analyze", async (req, res) => {
   try {
     const { text, question } = req.body;
+    console.log("INPUT:", text?.substring(0, 100));
 
     if (!OPENROUTER_API_KEY) {
+      console.error("Kein OPENROUTER_API_KEY gesetzt!");
       return res.status(500).json({ error: "API Key fehlt" });
     }
 
-    if (!text) {
-      return res.status(400).json({ error: "Kein Input erhalten" });
-    }
+    if (!text) return res.status(400).json({ error: "Kein Input erhalten" });
 
-    let vehicleText = "";
+    let vehicleText = text;
+    console.log("Vehicle Text:", vehicleText);
+
+    // ----- AI-Abfrage -----
+    const instruction = question || "Analysiere das Fahrzeug";
+    const answer = await askLLM(vehicleText, instruction);
+
+    console.log("AI-Antwort:", answer?.substring(0, 100));
+    res.json({ answer });
+
+  } catch (err) {
+    console.error("SERVER ERROR:", err);
+    res.status(500).json({ error: "Serverfehler: " + err.toString() });
+  }
+});
 
     // ----- mobile.de Link prüfen -----
     if (text.includes("mobile.de")) {
