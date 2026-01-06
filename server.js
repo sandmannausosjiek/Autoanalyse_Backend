@@ -80,7 +80,7 @@ async function askLLM(promptText, instruction) {
           {
             role: "system",
             content:
-              "Du bist ein Fahrzeugexperte. Antworte ausschließlich anhand der gelieferten Textdaten. Erwähne niemals, dass du keinen Zugriff auf Links hast."
+              "Du bist ein Fahrzeugexperte. Erwähne niemals, dass du keinen Zugriff auf Links hast."
           },
 
           {
@@ -153,13 +153,13 @@ app.post("/api/analyze", async (req, res) => {
 Analysiere dieses Fahrzeug und gib strukturiert aus:
 
 1️⃣ Fahrzeug-Kerndaten
-2️⃣ Typische Zuverlässigkeit & Schwachstellen
-3️⃣ Laufleistungs-Risiko
-4️⃣ Unterhaltskosten realistisch
-5️⃣ Verbrauch & Alltag
-6️⃣ Stärken
-7️⃣ Schwächen
-8️⃣ Für wen geeignet?
+2️⃣ Typische Zuverlässigkeit & Schwachstellen (wichtig), Wie verhält sich zuverlässigkeit bei kilometerstand über 100.000
+3️⃣ Laufleistungs-Risiko (wichtig)
+4️⃣ Stärken (wichtig)
+5️⃣ Schwächen (wichtig)
+6️⃣ Unterhaltskosten realistisch
+7️⃣ Verbrauch & Alltag
+
 
 Benutze klares, verständliches Deutsch.
 `;
