@@ -9,9 +9,10 @@ app.use(express.json({ limit: "10mb" }));
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
+
 // ---------- SCRAPER ----------
 async function scrapeMobile(url) {
-  console.log("Starte Scraper…", url);
+  console.log("Scraping:", url);
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -32,7 +33,6 @@ async function scrapeMobile(url) {
 
   const data = await page.evaluate(() => {
     const get = sel => document.querySelector(sel)?.innerText || "";
-
     return {
       title: get("h1"),
       price: get('[data-testid="prime-price"]'),
@@ -50,6 +50,8 @@ Details: ${data.details}
 Beschreibung: ${data.description}
 `;
 }
+
+
 
 // ---------- AI ----------
 async function askLLM(promptText, instruction) {
@@ -91,82 +93,56 @@ async function askLLM(promptText, instruction) {
   }
 }
 
+
+
 // ---------- ROUTE ----------
 app.post("/api/analyze", async (req, res) => {
   try {
     const { text, question } = req.body;
-    console.log("INPUT:", text?.substring(0, 100));
 
     if (!OPENROUTER_API_KEY) {
-      console.error("Kein OPENROUTER_API_KEY gesetzt!");
-      return res.status(500).json({ error: "API Key fehlt" });
+      return res.status(500).json({ error: "API-Key fehlt" });
     }
 
     if (!text) return res.status(400).json({ error: "Kein Input erhalten" });
 
     let vehicleText = text;
-    console.log("Vehicle Text:", vehicleText);
 
-    // ----- AI-Abfrage -----
-    const instruction = question || "Analysiere das Fahrzeug";
+    // ---- mobile.de Link ----
+    if (text.includes("mobile.de")) {
+      console.log("mobile.de erkannt");
+
+      try {
+        vehicleText = await scrapeMobile(text);
+      } catch (err) {
+        console.error("SCRAPER ERROR", err);
+        vehicleText = "SCRAPER FEHLER — analysiere nur den Link:\n" + text;
+      }
+    }
+
+    const instruction = question || "Analysiere dieses Fahrzeug.";
+
     const answer = await askLLM(vehicleText, instruction);
 
-    console.log("AI-Antwort:", answer?.substring(0, 100));
     res.json({ answer });
 
   } catch (err) {
-    console.error("SERVER ERROR:", err);
+    console.error("SERVER ERROR", err);
     res.status(500).json({ error: "Serverfehler: " + err.toString() });
   }
 });
 
-    // ----- mobile.de Link prüfen -----
-    if (text.includes("mobile.de")) {
-      console.log("Mobile.de erkannt — Scraping…");
-      try {
-        vehicleText = await scrapeMobile(text);
-      } catch (e) {
-        console.error("SCRAPER ERROR", e);
-        vehicleText = "SCRAPER FEHLER — analysiere nur den Link:\n" + text;
-      }
-    } else {
-      // ----- normale Beschreibung -----
-      vehicleText = text;
-    }
 
-    const instruction = question || `
-Analysiere dieses Fahrzeug und gib strukturiert aus:
 
-1️⃣ Fahrzeug-Kerndaten
-2️⃣ Typische Zuverlässigkeit & Schwachstellen
-3️⃣ Laufleistungs-Risiko
-4️⃣ Unterhaltskosten realistisch
-5️⃣ Verbrauch & Alltag
-6️⃣ Stärken
-7️⃣ Schwächen
-8️⃣ Für wen geeignet?
+// ---------- HEALTH ----------
+app.get("/", (req, res) => res.send("Backend läuft ✅"));
 
-Benutze klares, verständliches Deutsch.
-`;
 
-    const answer = await askLLM(vehicleText, instruction);
-
-    res.json({ answer });
-
-  } catch (err) {
-    console.error("SERVER ERROR:", err);
-    res.status(500).json({ error: "Serverfehler", details: err.toString() });
-  }
-});
-
-// ---------- HEALTH CHECK ----------
-app.get("/", (req, res) => {
-  res.send("Backend läuft ✅");
-});
 
 // ---------- START ----------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
   console.log("🚀 Backend läuft auf Port", PORT)
 );
+
 
