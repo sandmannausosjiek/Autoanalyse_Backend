@@ -81,32 +81,6 @@ Beschreibung: ${data.desc}
   }
 }
 
-  // kurze Wartezeit für nachladende Inhalte
-  await page.waitForTimeout(3000);
-
-  const data = await page.evaluate(() => {
-
-    const safe = sel =>
-      document.querySelector(sel)?.innerText?.trim() || "";
-
-    return {
-      title: safe("h1"),
-      price: safe('[data-testid="prime-price"]'),
-      facts: safe('[data-testid="keyFacts"]'),
-      desc: safe('[data-testid="description"]')
-    };
-  });
-
-  await browser.close();
-
-  return `
-Titel: ${data.title}
-Preis: ${data.price}
-Fahrzeugdaten: ${data.facts}
-Beschreibung: ${data.desc}
-  `;
-}
-
 
 
 // ---------- AI ----------
@@ -123,11 +97,10 @@ async function askLLM(promptText, instruction) {
         model: "nvidia/nemotron-nano-12b-v2-vl:free",
         messages: [
 
-          // verhindert "Ich kann Links nicht öffnen"
           {
             role: "system",
             content:
-              "Du bist ein Fahrzeugexperte. Erwähne niemals, dass du keinen Zugriff auf Links hast."
+              "Du bist ein Fahrzeugexperte. Erwähne niemals, dass du keinen Zugriff auf Links hast. Antworte nur anhand der gelieferten Daten."
           },
 
           {
@@ -176,7 +149,6 @@ app.post("/api/analyze", async (req, res) => {
     let vehicleText = "";
 
 
-    // -------- mobile.de Erkennung --------
     if (text.includes("mobile.de")) {
 
       console.log("mobile.de erkannt — Scraping…");
@@ -187,7 +159,7 @@ app.post("/api/analyze", async (req, res) => {
         console.error("SCRAPER ERROR", err);
 
         vehicleText =
-          "SCRAPER FEHLER — analysiere nur diesen Text:\n" + text;
+          `SCRAPER FEHLER — analysiere nur diesen Text:\n${text}`;
       }
 
     } else {
@@ -195,22 +167,19 @@ app.post("/api/analyze", async (req, res) => {
     }
 
 
-    // -------- Standard-Anweisung --------
     const instruction = question || `
 Analysiere dieses Fahrzeug und gib strukturiert aus:
 
 1️⃣ Fahrzeug-Kerndaten
-2️⃣ Typische Zuverlässigkeit & Schwachstellen (wichtig), Wie verhält sich zuverlässigkeit bei kilometerstand über 100.000
+2️⃣ Typische Zuverlässigkeit & Schwachstellen (wichtig) – inkl. Risiko über 100.000 km
 3️⃣ Laufleistungs-Risiko (wichtig)
 4️⃣ Stärken (wichtig)
 5️⃣ Schwächen (wichtig)
 6️⃣ Unterhaltskosten realistisch
 7️⃣ Verbrauch & Alltag
 
-
 Benutze klares, verständliches Deutsch.
 `;
-
 
     const answer = await askLLM(vehicleText, instruction);
 
@@ -234,6 +203,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
   console.log("🚀 Backend läuft auf Port", PORT)
 );
+
 
 
 
