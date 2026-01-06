@@ -12,27 +12,74 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 // ---------- SCRAPER ----------
 async function scrapeMobile(url) {
-  console.log("Scraping:", url);
+  console.log("Scraping URL:", url);
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--no-zygote",
-      "--single-process"
-    ]
-  });
+  let browser;
 
-  const page = await browser.newPage();
+  try {
 
-  await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-  );
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-zygote",
+        "--single-process"
+      ]
+    });
 
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    const page = await browser.newPage();
+
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    );
+
+    console.log("Opening page…");
+
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+
+    console.log("Waiting for content…");
+    await page.waitForTimeout(4000);
+
+    console.log("Extracting…");
+
+    const data = await page.evaluate(() => {
+
+      const safe = sel =>
+        document.querySelector(sel)?.innerText?.trim() || "(leer)";
+
+      return {
+        title: safe("h1"),
+        price: safe('[data-testid="prime-price"], [data-testid="price"]'),
+        facts: safe('[data-testid="keyFacts"]'),
+        desc: safe('[data-testid="description"]'),
+      };
+    });
+
+    console.log("Scraped:", data);
+
+    await browser.close();
+
+    return `
+Titel: ${data.title}
+Preis: ${data.price}
+Fahrzeugdaten: ${data.facts}
+Beschreibung: ${data.desc}
+`;
+
+  } catch (err) {
+
+    console.error("SCRAPER FAILED:", err);
+
+    try {
+      if (browser) await browser.close();
+    } catch {}
+
+    throw err;
+  }
+}
 
   // kurze Wartezeit für nachladende Inhalte
   await page.waitForTimeout(3000);
