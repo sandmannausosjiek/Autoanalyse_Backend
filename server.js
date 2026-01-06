@@ -70,7 +70,7 @@ async function askLLM(promptText, instruction) {
             content: [
               {
                 type: "text",
-                text: `${instruction}\n\nFAHRZEUGDATEN:\n${promptText}`
+                text: `${instruction}\n\nEXTRAHIERTE FAHRZEUGDATEN:\n${promptText}`
               }
             ]
           }
@@ -100,27 +100,30 @@ app.post("/api/analyze", async (req, res) => {
   try {
     const { text, question } = req.body;
 
-    if (!OPENROUTER_API_KEY) {
+    if (!OPENROUTER_API_KEY)
       return res.status(500).json({ error: "API-Key fehlt" });
-    }
 
-    if (!text) return res.status(400).json({ error: "Kein Input erhalten" });
+    if (!text)
+      return res.status(400).json({ error: "Kein Input erhalten" });
 
-    let vehicleText = text;
+    let vehicleText = "";
 
-    // ---- mobile.de Link ----
+    // 🔥 HIER IST DER WICHTIGE TEIL
     if (text.includes("mobile.de")) {
-      console.log("mobile.de erkannt");
+      console.log("mobile.de erkannt — scrapen…");
 
       try {
         vehicleText = await scrapeMobile(text);
       } catch (err) {
         console.error("SCRAPER ERROR", err);
-        vehicleText = "SCRAPER FEHLER — analysiere nur den Link:\n" + text;
+        vehicleText =
+          "SCRAPER FEHLER — analysiere nur den Link:\n" + text;
       }
+    } else {
+      vehicleText = text;
     }
 
-    const instruction = question || "Analysiere dieses Fahrzeug.";
+    const instruction = question || "Analysiere dieses Fahrzeug strukturiert.";
 
     const answer = await askLLM(vehicleText, instruction);
 
@@ -133,16 +136,13 @@ app.post("/api/analyze", async (req, res) => {
 });
 
 
-
 // ---------- HEALTH ----------
 app.get("/", (req, res) => res.send("Backend läuft ✅"));
 
 
-
 // ---------- START ----------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log("🚀 Backend läuft auf Port", PORT)
-);
+app.listen(PORT, () => console.log("🚀 Backend läuft auf Port", PORT));
+
 
 
