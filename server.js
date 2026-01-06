@@ -27,17 +27,26 @@ async function scrapeMobile(url) {
   });
 
   const page = await browser.newPage();
-  await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
 
-  await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+  );
+
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+
+  // kurze Wartezeit für nachladende Inhalte
+  await page.waitForTimeout(3000);
 
   const data = await page.evaluate(() => {
-    const get = sel => document.querySelector(sel)?.innerText || "";
+
+    const safe = sel =>
+      document.querySelector(sel)?.innerText?.trim() || "";
+
     return {
-      title: get("h1"),
-      price: get('[data-testid="prime-price"]'),
-      details: get('[data-testid="keyFacts"]'),
-      description: get('[data-testid="description"]')
+      title: safe("h1"),
+      price: safe('[data-testid="prime-price"]'),
+      facts: safe('[data-testid="keyFacts"]'),
+      desc: safe('[data-testid="description"]')
     };
   });
 
@@ -46,15 +55,16 @@ async function scrapeMobile(url) {
   return `
 Titel: ${data.title}
 Preis: ${data.price}
-Details: ${data.details}
-Beschreibung: ${data.description}
-`;
+Fahrzeugdaten: ${data.facts}
+Beschreibung: ${data.desc}
+  `;
 }
 
 
 
 // ---------- AI ----------
 async function askLLM(promptText, instruction) {
+
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -65,12 +75,20 @@ async function askLLM(promptText, instruction) {
       body: JSON.stringify({
         model: "nvidia/nemotron-nano-12b-v2-vl:free",
         messages: [
+
+          // verhindert "Ich kann Links nicht öffnen"
+          {
+            role: "system",
+            content:
+              "Du bist ein Fahrzeugexperte. Antworte ausschließlich anhand der gelieferten Textdaten. Erwähne niemals, dass du keinen Zugriff auf Links hast."
+          },
+
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: `${instruction}\n\nEXTRAHIERTE FAHRZEUGDATEN:\n${promptText}`
+                text: `${instruction}\n\nNUTZE AUSSCHLIESSLICH DIESE DATEN:\n${promptText}`
               }
             ]
           }
@@ -98,6 +116,7 @@ async function askLLM(promptText, instruction) {
 // ---------- ROUTE ----------
 app.post("/api/analyze", async (req, res) => {
   try {
+
     const { text, question } = req.body;
 
     if (!OPENROUTER_API_KEY)
@@ -106,24 +125,45 @@ app.post("/api/analyze", async (req, res) => {
     if (!text)
       return res.status(400).json({ error: "Kein Input erhalten" });
 
+
     let vehicleText = "";
 
-    // 🔥 HIER IST DER WICHTIGE TEIL
+
+    // -------- mobile.de Erkennung --------
     if (text.includes("mobile.de")) {
-      console.log("mobile.de erkannt — scrapen…");
+
+      console.log("mobile.de erkannt — Scraping…");
 
       try {
         vehicleText = await scrapeMobile(text);
       } catch (err) {
         console.error("SCRAPER ERROR", err);
+
         vehicleText =
-          "SCRAPER FEHLER — analysiere nur den Link:\n" + text;
+          "SCRAPER FEHLER — analysiere nur diesen Text:\n" + text;
       }
+
     } else {
       vehicleText = text;
     }
 
-    const instruction = question || "Analysiere dieses Fahrzeug strukturiert.";
+
+    // -------- Standard-Anweisung --------
+    const instruction = question || `
+Analysiere dieses Fahrzeug und gib strukturiert aus:
+
+1️⃣ Fahrzeug-Kerndaten
+2️⃣ Typische Zuverlässigkeit & Schwachstellen
+3️⃣ Laufleistungs-Risiko
+4️⃣ Unterhaltskosten realistisch
+5️⃣ Verbrauch & Alltag
+6️⃣ Stärken
+7️⃣ Schwächen
+8️⃣ Für wen geeignet?
+
+Benutze klares, verständliches Deutsch.
+`;
+
 
     const answer = await askLLM(vehicleText, instruction);
 
@@ -136,13 +176,18 @@ app.post("/api/analyze", async (req, res) => {
 });
 
 
+
 // ---------- HEALTH ----------
 app.get("/", (req, res) => res.send("Backend läuft ✅"));
 
 
+
 // ---------- START ----------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("🚀 Backend läuft auf Port", PORT));
+app.listen(PORT, () =>
+  console.log("🚀 Backend läuft auf Port", PORT)
+);
+
 
 
 
