@@ -11,6 +11,12 @@ app.use(express.json({ limit: "10mb" }));
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 
+// einfache Wartefunktion (PORTABLE)
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+
 // ---------- SCRAPER ----------
 async function scrapeMobile(url) {
   console.log("Scraping URL:", url);
@@ -41,7 +47,8 @@ async function scrapeMobile(url) {
       timeout: 60000
     });
 
-    await page.waitForTimeout(4000);
+    // 🔥 ersetzt waitForTimeout()
+    await sleep(4000);
 
     const data = await page.evaluate(() => {
 
@@ -90,13 +97,11 @@ async function askLLM(promptText, instruction) {
       body: JSON.stringify({
         model: "nvidia/nemotron-nano-12b-v2-vl:free",
         messages: [
-
           {
             role: "system",
             content:
               "Du bist ein Fahrzeugexperte. Erwähne niemals, dass du keinen Zugriff auf Links hast. Antworte nur anhand der gelieferten Daten."
           },
-
           {
             role: "user",
             content: [
@@ -197,7 +202,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
   console.log("🚀 Backend läuft auf Port", PORT)
 );
-;
 
 
 
