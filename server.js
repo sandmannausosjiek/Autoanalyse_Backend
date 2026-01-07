@@ -1,7 +1,12 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+
 import chromium from "chrome-aws-lambda";
+import puppeteerExtra from "puppeteer-extra";
+import stealth from "puppeteer-extra-plugin-stealth";
+
+puppeteerExtra.use(stealth());
 
 const app = express();
 app.use(cors());
@@ -12,31 +17,30 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 // ---------- SCRAPER ----------
 async function scrapeMobile(url) {
+
   console.log("Scraping URL:", url);
 
   let browser;
 
   try {
 
-    browser = await chromium.puppeteer.launch({
+    browser = await puppeteerExtra.launch({
       args: [
         ...chromium.args,
         "--no-sandbox",
         "--disable-dev-shm-usage"
       ],
-      defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
-      headless: chromium.headless
+      headless: chromium.headless,
+      defaultViewport: chromium.defaultViewport
     });
 
     const page = await browser.newPage();
 
-    // realistische Sprache
     await page.setExtraHTTPHeaders({
       "accept-language": "de-DE,de;q=0.9,en;q=0.8"
     });
 
-    // realistische Browser-Signatur
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
       "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -44,35 +48,40 @@ async function scrapeMobile(url) {
     );
 
     console.log("Opening page…");
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-    // kurz warten
-    await new Promise(res => setTimeout(res, 2000));
 
-    // Cookie Banner akzeptieren (falls vorhanden)
+    // --- Cookie Banner ---
     try {
-      await page.click("button[aria-label='Alle akzeptieren'], button[aria-label='Accept all']");
+      await page.waitForSelector("button", { timeout: 3000 });
+      await page.evaluate(() => {
+        document.querySelectorAll("button").forEach(btn => {
+          if (btn.innerText.toLowerCase().includes("akzeptieren"))
+            btn.click();
+        });
+      });
     } catch {}
 
-    await new Promise(res => setTimeout(res, 1500));
+    await new Promise(r => setTimeout(r, 1500));
 
-    console.log("Extracting…");
 
+    // --- Daten Extraktion ---
     const data = await page.evaluate(() => {
+
       const safe = sel =>
         document.querySelector(sel)?.innerText?.trim() || "(nicht gefunden)";
 
       return {
         title: safe("h1"),
         price: safe('[data-testid="prime-price"], [data-testid="price"]'),
-        facts: safe('[data-testid="keyFacts"]'),
-        desc: safe('[data-testid="description"]')
+        facts: safe('[data-testid=\"keyFacts\"]'),
+        desc: safe('[data-testid=\"description\"]')
       };
     });
 
-    console.log("Scraped:", data);
-
     await browser.close();
+
+    console.log("SCRAPED:", data);
 
     return `
 Titel: ${data.title}
@@ -153,7 +162,6 @@ app.post("/api/analyze", async (req, res) => {
     if (!text)
       return res.status(400).json({ error: "Kein Input erhalten" });
 
-
     let vehicleText = "";
 
 
@@ -164,6 +172,7 @@ app.post("/api/analyze", async (req, res) => {
       try {
         vehicleText = await scrapeMobile(text);
       } catch (err) {
+
         console.error("SCRAPER ERROR", err);
 
         vehicleText =
@@ -211,6 +220,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
   console.log("🚀 Backend läuft auf Port", PORT)
 );
+
 
 
 
