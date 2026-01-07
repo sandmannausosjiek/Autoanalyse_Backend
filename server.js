@@ -1,20 +1,13 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
-import chromium from "@sparticuz/chromium";
-import puppeteer from "puppeteer-core";
+import chromium from "chrome-aws-lambda";
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-
-
-// einfache Wartefunktion (PORTABLE)
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 
 // ---------- SCRAPER ----------
@@ -25,7 +18,7 @@ async function scrapeMobile(url) {
 
   try {
 
-    browser = await puppeteer.launch({
+    browser = await chromium.puppeteer.launch({
       args: [
         ...chromium.args,
         "--no-sandbox",
@@ -38,22 +31,36 @@ async function scrapeMobile(url) {
 
     const page = await browser.newPage();
 
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-    );
-
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000
+    // realistische Sprache
+    await page.setExtraHTTPHeaders({
+      "accept-language": "de-DE,de;q=0.9,en;q=0.8"
     });
 
-    // 🔥 ersetzt waitForTimeout()
-    await sleep(4000);
+    // realistische Browser-Signatur
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/120.0.0.0 Safari/537.36"
+    );
+
+    console.log("Opening page…");
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+
+    // kurz warten
+    await new Promise(res => setTimeout(res, 2000));
+
+    // Cookie Banner akzeptieren (falls vorhanden)
+    try {
+      await page.click("button[aria-label='Alle akzeptieren'], button[aria-label='Accept all']");
+    } catch {}
+
+    await new Promise(res => setTimeout(res, 1500));
+
+    console.log("Extracting…");
 
     const data = await page.evaluate(() => {
-
       const safe = sel =>
-        document.querySelector(sel)?.innerText?.trim() || "(leer)";
+        document.querySelector(sel)?.innerText?.trim() || "(nicht gefunden)";
 
       return {
         title: safe("h1"),
@@ -62,6 +69,8 @@ async function scrapeMobile(url) {
         desc: safe('[data-testid="description"]')
       };
     });
+
+    console.log("Scraped:", data);
 
     await browser.close();
 
