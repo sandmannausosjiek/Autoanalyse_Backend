@@ -1,7 +1,8 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
-import puppeteer from "puppeteer";
+import chromium from "@sparticuz/chromium";
+import puppeteer from "puppeteer-core";
 
 const app = express();
 app.use(cors());
@@ -19,15 +20,14 @@ async function scrapeMobile(url) {
   try {
 
     browser = await puppeteer.launch({
-      headless: true,
       args: [
+        ...chromium.args,
         "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--no-zygote",
-        "--single-process"
-      ]
+        "--disable-dev-shm-usage"
+      ],
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless
     });
 
     const page = await browser.newPage();
@@ -36,14 +36,12 @@ async function scrapeMobile(url) {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     );
 
-    console.log("Opening page…");
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000
+    });
 
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-
-    console.log("Waiting for content…");
     await page.waitForTimeout(4000);
-
-    console.log("Extracting…");
 
     const data = await page.evaluate(() => {
 
@@ -54,11 +52,9 @@ async function scrapeMobile(url) {
         title: safe("h1"),
         price: safe('[data-testid="prime-price"], [data-testid="price"]'),
         facts: safe('[data-testid="keyFacts"]'),
-        desc: safe('[data-testid="description"]'),
+        desc: safe('[data-testid="description"]')
       };
     });
-
-    console.log("Scraped:", data);
 
     await browser.close();
 
@@ -73,9 +69,7 @@ Beschreibung: ${data.desc}
 
     console.error("SCRAPER FAILED:", err);
 
-    try {
-      if (browser) await browser.close();
-    } catch {}
+    try { if (browser) await browser.close(); } catch {}
 
     throw err;
   }
@@ -171,10 +165,10 @@ app.post("/api/analyze", async (req, res) => {
 Analysiere dieses Fahrzeug und gib strukturiert aus:
 
 1️⃣ Fahrzeug-Kerndaten
-2️⃣ Typische Zuverlässigkeit & Schwachstellen (wichtig) – inkl. Risiko über 100.000 km
-3️⃣ Laufleistungs-Risiko (wichtig)
-4️⃣ Stärken (wichtig)
-5️⃣ Schwächen (wichtig)
+2️⃣ Typische Zuverlässigkeit & Schwachstellen – inkl. Risiko über 100.000 km
+3️⃣ Laufleistungs-Risiko
+4️⃣ Stärken
+5️⃣ Schwächen
 6️⃣ Unterhaltskosten realistisch
 7️⃣ Verbrauch & Alltag
 
@@ -203,8 +197,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
   console.log("🚀 Backend läuft auf Port", PORT)
 );
-
-
 
 
 
