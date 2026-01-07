@@ -7,7 +7,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@sparticuz/chromium": "^129.0.0",
+    "chrome-aws-lambda": "^10.1.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "node-fetch": "^3.3.2",
