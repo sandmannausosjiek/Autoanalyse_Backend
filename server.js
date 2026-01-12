@@ -1,12 +1,7 @@
-import express from "express";
+importimport express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
-
-import chromium from "chrome-aws-lambda";
-import puppeteerExtra from "puppeteer-extra";
-import stealth from "puppeteer-extra-plugin-stealth";
-
-puppeteerExtra.use(stealth());
+import puppeteer from "puppeteer";
 
 const app = express();
 app.use(cors());
@@ -18,70 +13,46 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 // ---------- SCRAPER ----------
 async function scrapeMobile(url) {
 
-  console.log("Scraping URL:", url);
-
   let browser;
 
   try {
-
-    browser = await puppeteerExtra.launch({
+    browser = await puppeteer.launch({
+      headless: "new",
       args: [
-        ...chromium.args,
         "--no-sandbox",
-        "--disable-dev-shm-usage"
-      ],
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-      defaultViewport: chromium.defaultViewport
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu"
+      ]
     });
 
     const page = await browser.newPage();
 
-    await page.setExtraHTTPHeaders({
-      "accept-language": "de-DE,de;q=0.9,en;q=0.8"
-    });
-
     await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-      "AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/120.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
     );
 
-    console.log("Opening page…");
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000
+    });
 
+    // kurze Pause (statt waitForTimeout → deprecated)
+    await new Promise(r => setTimeout(r, 3000));
 
-    // --- Cookie Banner ---
-    try {
-      await page.waitForSelector("button", { timeout: 3000 });
-      await page.evaluate(() => {
-        document.querySelectorAll("button").forEach(btn => {
-          if (btn.innerText.toLowerCase().includes("akzeptieren"))
-            btn.click();
-        });
-      });
-    } catch {}
-
-    await new Promise(r => setTimeout(r, 1500));
-
-
-    // --- Daten Extraktion ---
     const data = await page.evaluate(() => {
-
       const safe = sel =>
-        document.querySelector(sel)?.innerText?.trim() || "(nicht gefunden)";
+        document.querySelector(sel)?.innerText?.trim() || "";
 
       return {
         title: safe("h1"),
         price: safe('[data-testid="prime-price"], [data-testid="price"]'),
-        facts: safe('[data-testid=\"keyFacts\"]'),
-        desc: safe('[data-testid=\"description\"]')
+        facts: safe('[data-testid="keyFacts"]'),
+        desc: safe('[data-testid="description"]')
       };
     });
 
     await browser.close();
-
-    console.log("SCRAPED:", data);
 
     return `
 Titel: ${data.title}
@@ -91,128 +62,90 @@ Beschreibung: ${data.desc}
 `;
 
   } catch (err) {
-
-    console.error("SCRAPER FAILED:", err);
-
-    try { if (browser) await browser.close(); } catch {}
-
+    if (browser) await browser.close();
     throw err;
   }
 }
 
 
-
 // ---------- AI ----------
 async function askLLM(promptText, instruction) {
 
-  try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "nvidia/nemotron-nano-12b-v2-vl:free",
-        messages: [
-          {
-            role: "system",
-            content:
-              "Du bist ein Fahrzeugexperte. Erwähne niemals, dass du keinen Zugriff auf Links hast. Antworte nur anhand der gelieferten Daten."
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `${instruction}\n\nNUTZE AUSSCHLIESSLICH DIESE DATEN:\n${promptText}`
-              }
-            ]
-          }
-        ]
-      })
-    });
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "nvidia/nemotron-nano-12b-v2-vl:free",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Du bist ein Fahrzeugexperte. Erwähne niemals, dass du keinen Zugriff auf Links hast."
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${instruction}\n\nDATEN:\n${promptText}`
+            }
+          ]
+        }
+      ]
+    })
+  });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("OPENROUTER ERROR", data);
-      return "Fehler bei AI-Abfrage — bitte später erneut probieren.";
-    }
-
-    return data?.choices?.[0]?.message?.content || "Keine Antwort erhalten.";
-
-  } catch (e) {
-    console.error("AI ERROR", e);
-    return "AI-System aktuell nicht erreichbar.";
-  }
+  const data = await response.json();
+  return data?.choices?.[0]?.message?.content || "Keine Antwort";
 }
-
 
 
 // ---------- ROUTE ----------
 app.post("/api/analyze", async (req, res) => {
-  try {
 
+  try {
     const { text, question } = req.body;
 
     if (!OPENROUTER_API_KEY)
       return res.status(500).json({ error: "API-Key fehlt" });
 
     if (!text)
-      return res.status(400).json({ error: "Kein Input erhalten" });
+      return res.status(400).json({ error: "Kein Input" });
 
-    let vehicleText = "";
-
+    let vehicleText = text;
 
     if (text.includes("mobile.de")) {
-
-      console.log("mobile.de erkannt — Scraping…");
-
       try {
         vehicleText = await scrapeMobile(text);
-      } catch (err) {
-
-        console.error("SCRAPER ERROR", err);
-
-        vehicleText =
-          `SCRAPER FEHLER — analysiere nur diesen Text:\n${text}`;
+      } catch {
+        vehicleText = "SCRAPER FEHLER – analysiere nur den Link:\n" + text;
       }
-
-    } else {
-      vehicleText = text;
     }
 
-
     const instruction = question || `
-Analysiere dieses Fahrzeug und gib strukturiert aus:
-
 1️⃣ Fahrzeug-Kerndaten
-2️⃣ Typische Zuverlässigkeit & Schwachstellen – inkl. Risiko über 100.000 km
+2️⃣ Zuverlässigkeit & Schwachstellen
 3️⃣ Laufleistungs-Risiko
 4️⃣ Stärken
 5️⃣ Schwächen
-6️⃣ Unterhaltskosten realistisch
+6️⃣ Unterhaltskosten
 7️⃣ Verbrauch & Alltag
-
-Benutze klares, verständliches Deutsch.
 `;
 
     const answer = await askLLM(vehicleText, instruction);
-
     res.json({ answer });
 
   } catch (err) {
-    console.error("SERVER ERROR", err);
-    res.status(500).json({ error: "Serverfehler: " + err.toString() });
+    res.status(500).json({ error: err.toString() });
   }
 });
 
 
-
 // ---------- HEALTH ----------
-app.get("/", (req, res) => res.send("Backend läuft ✅"));
-
+app.get("/", (_, res) => res.send("Backend läuft ✅"));
 
 
 // ---------- START ----------
@@ -220,6 +153,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
   console.log("🚀 Backend läuft auf Port", PORT)
 );
+
 
 
 
