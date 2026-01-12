@@ -1,71 +1,12 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
-import puppeteer from "puppeteer";
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-
-
-// ---------- SCRAPER ----------
-async function scrapeMobile(url) {
-
-  let browser;
-
-  try {
-    browser = await puppeteer.launch({
-      headless: "new",
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu"
-      ]
-    });
-
-    const page = await browser.newPage();
-
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
-    );
-
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000
-    });
-
-    // kurze Pause (statt waitForTimeout → deprecated)
-    await new Promise(r => setTimeout(r, 3000));
-
-    const data = await page.evaluate(() => {
-      const safe = sel =>
-        document.querySelector(sel)?.innerText?.trim() || "";
-
-      return {
-        title: safe("h1"),
-        price: safe('[data-testid="prime-price"], [data-testid="price"]'),
-        facts: safe('[data-testid="keyFacts"]'),
-        desc: safe('[data-testid="description"]')
-      };
-    });
-
-    await browser.close();
-
-    return `
-Titel: ${data.title}
-Preis: ${data.price}
-Fahrzeugdaten: ${data.facts}
-Beschreibung: ${data.desc}
-`;
-
-  } catch (err) {
-    if (browser) await browser.close();
-    throw err;
-  }
-}
 
 
 // ---------- AI ----------
@@ -83,14 +24,14 @@ async function askLLM(promptText, instruction) {
         {
           role: "system",
           content:
-            "Du bist ein Fahrzeugexperte. Erwähne niemals, dass du keinen Zugriff auf Links hast."
+            "Du bist ein erfahrener Kfz-Experte. Antworte fundiert, sachlich und realistisch."
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `${instruction}\n\nDATEN:\n${promptText}`
+              text: `${instruction}\n\nFAHRZEUGINFORMATIONEN:\n${promptText}`
             }
           ]
         }
@@ -99,7 +40,7 @@ async function askLLM(promptText, instruction) {
   });
 
   const data = await response.json();
-  return data?.choices?.[0]?.message?.content || "Keine Antwort";
+  return data?.choices?.[0]?.message?.content || "Keine Antwort erhalten.";
 }
 
 
@@ -113,32 +54,47 @@ app.post("/api/analyze", async (req, res) => {
       return res.status(500).json({ error: "API-Key fehlt" });
 
     if (!text)
-      return res.status(400).json({ error: "Kein Input" });
+      return res.status(400).json({ error: "Kein Input erhalten" });
 
     let vehicleText = text;
 
+    // -------- mobile.de Link erkannt --------
     if (text.includes("mobile.de")) {
-      try {
-        vehicleText = await scrapeMobile(text);
-      } catch {
-        vehicleText = "SCRAPER FEHLER – analysiere nur den Link:\n" + text;
-      }
+      vehicleText = `
+Mobile.de Fahrzeuglink erkannt.
+
+Der Link verweist auf ein Fahrzeugangebot.
+Nutze dein Fachwissen zu:
+- typischen Motorisierungen
+- bekannten Schwachstellen
+- realistischem Unterhalt
+- Zuverlässigkeit über 100.000 km
+
+Link:
+${text}
+`;
     }
 
     const instruction = question || `
-1️⃣ Fahrzeug-Kerndaten
-2️⃣ Zuverlässigkeit & Schwachstellen
-3️⃣ Laufleistungs-Risiko
+Analysiere dieses Fahrzeug strukturiert:
+
+1️⃣ Fahrzeug-Kerndaten (geschätzt, falls nötig)
+2️⃣ Typische Zuverlässigkeit & bekannte Schwachstellen
+3️⃣ Laufleistungs-Risiko über 100.000 km
 4️⃣ Stärken
 5️⃣ Schwächen
-6️⃣ Unterhaltskosten
+6️⃣ Unterhaltskosten realistisch
 7️⃣ Verbrauch & Alltag
+8️⃣ Für wen geeignet?
+
+Antworte ehrlich, ohne Zugriff auf externe Webseiten zu erwähnen.
 `;
 
     const answer = await askLLM(vehicleText, instruction);
     res.json({ answer });
 
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.toString() });
   }
 });
@@ -153,7 +109,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
   console.log("🚀 Backend läuft auf Port", PORT)
 );
-
 
 
 
